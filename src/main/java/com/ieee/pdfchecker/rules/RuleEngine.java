@@ -71,9 +71,7 @@ public class RuleEngine {
     // ANISH
     private void checkPageSize(PDDocument document, ComplianceReport report) {
         PDPageTree pages = document.getDocumentCatalog().getPages();
-        for (PDPage page : pages) {
-
-        }
+        boolean pageSizeInvalidFound = false;
 
         for (PDPage page : pages) {
             Rectangle2D pageSize = new Rectangle2D.Float(
@@ -83,15 +81,22 @@ public class RuleEngine {
                     page.getMediaBox().getHeight()
             );
 
-            // A4 size - 595x842 points, US Letter - 612x792 points
             boolean isA4 = (pageSize.getWidth() == 595 && pageSize.getHeight() == 842);
             boolean isLetter = (pageSize.getWidth() == 612 && pageSize.getHeight() == 792);
 
             if (!isA4 && !isLetter) {
-                report.addError("Page size is incorrect. Must be A4 (595x842) or US Letter (612x792).");
+                pageSizeInvalidFound = true;
+                break; // no need to check further
             }
         }
+
+        if (pageSizeInvalidFound) {
+            report.addError("Page size is incorrect. Must be A4 (595x842) or US Letter (612x792).");
+        } else {
+            report.addInfo("All pages have valid size (A4 or US Letter)");
+        }
     }
+
 
     private void checkColumnFormat(PDDocument document, ComplianceReport report) throws IOException {
         PDFTextStripper textStripper = new PDFTextStripper();
@@ -171,7 +176,9 @@ public class RuleEngine {
         }
 
         if (!foundValidFont) {
-            report.addError("Times New Roman font NOT detected in the document");
+            report.addError("Times New Roman font not detected in the document");
+        } else {
+            report.addInfo("Times New Roman font detected in the document");
         }
     }
 
@@ -215,9 +222,7 @@ public class RuleEngine {
         textStripper.setEndPage(Math.min(2, document.getNumberOfPages()));
 
         String text = textStripper.getText(document);
-        if (!text.toUpperCase().contains("ABSTRACT")) {
-            report.addError("Abstract section is missing.");
-        } else {
+        if (text.toUpperCase().contains("ABSTRACT")) {
             int startIndex = text.indexOf("ABSTRACT") + 8;
             String remainingText = text.substring(startIndex).trim();
             int wordCount = remainingText.split("\\s+").length;
@@ -270,20 +275,20 @@ public class RuleEngine {
 
             textStripper.getText(document);
 
-            if (!foundAbstract.get()) {
-                report.addError("⚠️ 'Abstract' section NOT FOUND!");
-            } else if (!abstractIsValid.get()) {
-                report.addError("⚠️ 'Abstract' does NOT meet IEEE formatting rules!");
-            } else {
-                report.addInfo("✅ 'Abstract' meets IEEE formatting rules.");
+            if (foundAbstract.get()) {
+                if (!abstractIsValid.get()) {
+                    report.addError("Abstract does not meet IEEE formatting rules");
+                } else {
+                    report.addInfo("Abstract meets IEEE formatting rules.");
+                }
             }
 
             if (!foundIntroduction.get()) {
-                report.addError("⚠️ 'Introduction' section NOT FOUND!");
+                report.addError("Introduction section not found");
             } else if (!introductionIsValid.get()) {
-                report.addError("⚠️ 'Introduction' does NOT meet IEEE formatting rules!");
+                report.addError("Introduction does not meet IEEE formatting rules");
             } else {
-                report.addInfo("✅ 'Introduction' meets IEEE formatting rules.");
+                report.addInfo("Introduction meets IEEE formatting rules.");
             }
 
         } catch (IOException e) {
