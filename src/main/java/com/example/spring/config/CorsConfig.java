@@ -14,7 +14,6 @@ public class CorsConfig {
             public void addCorsMappings(@NonNull CorsRegistry registry) {
                 registry.addMapping("/api/**")
                         .allowedOrigins(
-                                "http://localhost:3000",
                                 "https://compliance-checker-nk.vercel.app"
                         )
                         .allowedMethods("GET", "POST", "PUT", "DELETE")
