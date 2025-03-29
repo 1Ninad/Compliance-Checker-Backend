@@ -13,7 +13,7 @@ public class CorsConfig {
             @Override
             public void addCorsMappings(@NonNull CorsRegistry registry) {
                 registry.addMapping("/api/**")
-                        .allowedOrigins("https://compliance-checker-nk.vercel.app")
+                        .allowedOrigins("https://pdfcompliance.vercel.app")
                         .allowedMethods("GET", "POST", "PUT", "DELETE")
                         .allowCredentials(true);
             }

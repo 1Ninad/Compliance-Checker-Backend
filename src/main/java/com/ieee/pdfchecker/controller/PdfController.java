@@ -9,7 +9,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.File;
 import java.io.IOException;
 
-@CrossOrigin(origins = "https://compliance-checker-nk.vercel.app") // Allow frontend access
+@CrossOrigin(origins = "https://pdfcompliance.vercel.app") // Allow frontend access
 @RestController
 @RequestMapping("/api/pdf")
 public class PdfController {
