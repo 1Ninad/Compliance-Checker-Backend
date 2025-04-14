@@ -5,6 +5,9 @@ import com.ieee.pdfchecker.reports.ComplianceReport;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.text.PDFTextStripper;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 
@@ -12,7 +15,7 @@ import java.awt.geom.Rectangle2D;
 
 
 
-// NINAD
+
 import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.PDPageTree;
@@ -22,56 +25,53 @@ import org.springframework.stereotype.Component;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import com.itextpdf.kernel.pdf.PdfDocument;
+import com.itextpdf.kernel.pdf.PdfReader;
+import com.itextpdf.kernel.pdf.PdfPage;
+import com.itextpdf.kernel.pdf.PdfDictionary;
+import com.itextpdf.kernel.pdf.PdfName;
 
 @Component
+
 public class RuleEngine {
 
     public ComplianceReport checkCompliance(File file) {
+
         ComplianceReport report = new ComplianceReport(file.getName());
 
         try (PDDocument document = PDDocument.load(file)) {
-            // CALL PRIVATE METHODS:
 
-            //AMEY
-            //checkReferenceFontSize(document, report);
+            // METHODS:
 
+            checkFont(document, report);
+            checkColumnFormat(document, report); // longest
 
             checkPageSize(document, report);
-            checkColumnFormat(document, report); // NOT WORKING
-            //checkColumnSpacing(document, report);
-
-            // NINAD
             checkAbstractPresence(document, report);
-            checkFont(document, report);
-            //checkTitleSize(document, report);
 
-
-            // PUSHKAR
-            checkAbstractFormat(document, report);
             checkAuthorDetailsFormat(document, report);
-            //checkAuthorAffiliationFormat(document, report);
+            checkKeywordsFormat(document, report);
 
-
-            // ANIKET
-            checkFontFormatting(document, report);
-
-
+            IntroNumbering(document, report);
+            // + JDBC
 
 
 
         } catch (IOException e) {
             report.addError("Error reading PDF: " + e.getMessage());
         }
-
-
         return report;
     }
 
 
-    // ANISH
+
     private void checkPageSize(PDDocument document, ComplianceReport report) {
         PDPageTree pages = document.getDocumentCatalog().getPages();
-        boolean pageSizeInvalidFound = false;
+        for (PDPage page : pages) {
+
+        }
 
         for (PDPage page : pages) {
             Rectangle2D pageSize = new Rectangle2D.Float(
@@ -85,54 +85,103 @@ public class RuleEngine {
             boolean isLetter = (pageSize.getWidth() == 612 && pageSize.getHeight() == 792);
 
             if (!isA4 && !isLetter) {
-                pageSizeInvalidFound = true;
-                break; // no need to check further
+                report.addError("Page size is incorrect. Must be A4 (595x842) or US Letter (612x792)");
+            }
+            else {
+                report.addInfo("Page size is Compliant - A4 or US Letter");
             }
         }
-
-        if (pageSizeInvalidFound) {
-            report.addError("Page size is incorrect. Must be A4 (595x842) or US Letter (612x792).");
-        } else {
-            report.addInfo("All pages have valid size (A4 or US Letter)");
-        }
     }
+
+
 
 
     private void checkColumnFormat(PDDocument document, ComplianceReport report) throws IOException {
-        PDFTextStripper textStripper = new PDFTextStripper();
-        textStripper.setStartPage(1);
-        textStripper.setEndPage(1);
+        int numberOfPages = document.getNumberOfPages();
+        boolean overallCompliant = true;
+        float minCentroidSeparation = 50.0f;  // Minimum separation to treat as 2 columns
 
-        String text = textStripper.getText(document);
-        if (text.contains("Authors") || text.contains("Affiliations")) {
-            int authorCount = text.split("\n").length;
+        for (int page = 1; page <= numberOfPages; page++) {
+            List<Float> firstWordPositions = new ArrayList<>();
 
-            if (authorCount <= 3) {
-                report.addInfo("Author affiliation section should have " + authorCount + " columns.");
+
+            PDFTextStripper stripper = new PDFTextStripper() {
+                @Override
+                protected void writeString(String text, List<TextPosition> textPositions) throws IOException {
+                    if (textPositions != null && !textPositions.isEmpty()) {
+                        firstWordPositions.add(textPositions.get(0).getXDirAdj());
+                    }
+                }
+            };
+
+            stripper.setStartPage(page);
+            stripper.setEndPage(page);
+            stripper.getText(document);
+
+            if (firstWordPositions.isEmpty()) {
+                report.addError("Page " + page + ": No text found.");
+                overallCompliant = false;
+                continue;
+            }
+
+
+            float centroid1 = Collections.min(firstWordPositions);
+            float centroid2 = Collections.max(firstWordPositions);
+
+            if (centroid1 == centroid2) {
+                report.addError("Page " + page + ": Column format not compliant, detected 1 column.");
+                overallCompliant = false;
+                continue;
+            }
+
+
+            List<Float> cluster1 = new ArrayList<>();
+            List<Float> cluster2 = new ArrayList<>();
+            for (int iter = 0; iter < 100; iter++) {
+                cluster1.clear();
+                cluster2.clear();
+                for (float pos : firstWordPositions) {
+                    if (Math.abs(pos - centroid1) <= Math.abs(pos - centroid2)) {
+                        cluster1.add(pos);
+                    } else {
+                        cluster2.add(pos);
+                    }
+                }
+                float newCentroid1 = cluster1.isEmpty() ? centroid1 : average(cluster1);
+                float newCentroid2 = cluster2.isEmpty() ? centroid2 : average(cluster2);
+                if (Math.abs(newCentroid1 - centroid1) < 0.01f && Math.abs(newCentroid2 - centroid2) < 0.01f) {
+                    centroid1 = newCentroid1;
+                    centroid2 = newCentroid2;
+                    break;
+                }
+                centroid1 = newCentroid1;
+                centroid2 = newCentroid2;
+            }
+            if (Math.abs(centroid1 - centroid2) < minCentroidSeparation) {
+                report.addError("Page " + page + ": Column format not compliant, detected 1 column.");
+                overallCompliant = false;
             } else {
-                report.addInfo("Author affiliation section should have a max of 3 columns, with rows adjusted accordingly.");
+                report.addInfo("Page " + page + ": Column format compliant with 2 columns.");
             }
         }
-    }
 
-    private void checkColumnSpacing(PDDocument document, ComplianceReport report) {
-        float columnSpacing = 14.4f;
-        float maxSpacing = 18.72f;
-
-        double columnSpacingPoints = columnSpacing * 72;  // Convert from inches to points
-
-        if (columnSpacingPoints >= 14.4 && columnSpacingPoints <= 18.72) {
-            // ✅ Corrected range check
+        if (overallCompliant) {
+            report.addInfo("Overall document column format compliant: two columns on every page.");
         } else {
-            report.addError("Column spacing must be between 14.4 and 18.72 points.");
+            report.addError("Overall document column format not compliant.");
         }
+    }
 
+    private float average(List<Float> list) {
+        float sum = 0;
+        for (float value : list) {
+            sum += value;
+        }
+        return sum / list.size();
     }
 
 
 
-
-    // NINAD
     private void checkAbstractPresence(PDDocument document, ComplianceReport report) throws IOException {
         PDFTextStripper textStripper = new PDFTextStripper();
         textStripper.setStartPage(1);
@@ -142,96 +191,62 @@ public class RuleEngine {
         if (!text.toUpperCase().contains("ABSTRACT")) {
             report.addError("Abstract section is missing");
         }
+        else report.addInfo("Abstract section is present");
     }
 
 
     private void checkFont(PDDocument document, ComplianceReport report) {
-        Set<String> allowedFonts = new HashSet<>(Arrays.asList(
-                "timesnewroman", "timesnewromanpsmt", "timesnewromanps-boldmt",
-                "timesnewromanps-italicmt", "timesnewromanps-bolditalicmt", "times-roman"
-        ));
         boolean foundValidFont = false;
-
-        for (PDPage page : document.getPages()) {
-            PDResources resources = page.getResources();
-            if (resources == null) continue;
-
-            Iterable<COSName> fontNamesIterable = resources.getFontNames();
-            for (COSName fontName : fontNamesIterable) {
-                try {
-                    PDFont font = resources.getFont(fontName);
-                    if (font != null) {
-                        String fontLower = font.getName().toLowerCase().replaceAll("\\s+", "");
-                        if (allowedFonts.contains(fontLower)) {
-                            foundValidFont = true;
-                            break;
-                        }
-                    }
-                } catch (IOException e) {
-                    report.addError("Error reading font metadata for: " + fontName.getName());
-                }
-            }
-
-            if (foundValidFont) break;
-        }
-
-        if (!foundValidFont) {
-            report.addError("Times New Roman font not detected in the document");
-        } else {
-            report.addInfo("Times New Roman font detected in the document");
-        }
-    }
-
-
-    private void checkTitleSize(PDDocument document, ComplianceReport report)  {
+        Set<String> detectedFonts = new HashSet<>();
         try {
-            PDPage firstPage = document.getPage(0);
-            PDResources resources = firstPage.getResources();
-
-            if (resources == null) {
-                report.addError("No resources found on the first page");
-                return;
-            }
-
-            Iterable<COSName> fontNamesIterable = resources.getFontNames();
-
-            for (COSName fontName : fontNamesIterable) {
-                PDFont font = resources.getFont(fontName);
-                if (font != null && font.getFontDescriptor() != null) {
-                    float fontSize = font.getFontDescriptor().getFontBoundingBox().getHeight() / 1000;
-
-                    if (fontSize >= 100) {
-                        return;
+            ByteArrayOutputStream outStream = new ByteArrayOutputStream();
+            document.save(outStream);
+            ByteArrayInputStream inStream = new ByteArrayInputStream(outStream.toByteArray());
+            com.itextpdf.kernel.pdf.PdfReader reader = new com.itextpdf.kernel.pdf.PdfReader(inStream);
+            com.itextpdf.kernel.pdf.PdfDocument pdfDoc = new com.itextpdf.kernel.pdf.PdfDocument(reader);
+            for (int i = 1; i <= pdfDoc.getNumberOfPages(); i++) {
+                com.itextpdf.kernel.pdf.PdfPage page = pdfDoc.getPage(i);
+                com.itextpdf.kernel.pdf.PdfDictionary resources = page.getPdfObject().getAsDictionary(com.itextpdf.kernel.pdf.PdfName.Resources);
+                if (resources == null) continue;
+                com.itextpdf.kernel.pdf.PdfDictionary fonts = resources.getAsDictionary(com.itextpdf.kernel.pdf.PdfName.Font);
+                if (fonts == null) continue;
+                for (com.itextpdf.kernel.pdf.PdfName fontKey : fonts.keySet()) {
+                    com.itextpdf.kernel.pdf.PdfDictionary fontDict = fonts.getAsDictionary(fontKey);
+                    if (fontDict == null) continue;
+                    com.itextpdf.kernel.pdf.PdfName baseFont = fontDict.getAsName(com.itextpdf.kernel.pdf.PdfName.BaseFont);
+                    if (baseFont == null) continue;
+                    String fontNameStr = baseFont.getValue();
+                    String cleanFontName = fontNameStr.contains("+") ? fontNameStr.substring(fontNameStr.indexOf("+") + 1) : fontNameStr;
+                    String normalizedFont = cleanFontName.toLowerCase().replaceAll("\\s+", "");
+                    detectedFonts.add(cleanFontName);
+                    if (normalizedFont.contains("times") && normalizedFont.contains("roman")) {
+                        foundValidFont = true;
+                        break;
                     }
                 }
+                if (foundValidFont) {
+                    report.addInfo("Typeface (Times New Roman) is Compliant.");
+                    break;
+                }
             }
-
-            report.addError("No text with font size 24PT found on first page");
-        } catch (IOException e) {
-            report.addError("Error reading font sizes: " + e.getMessage());
+            pdfDoc.close();
+        } catch (Exception e) {
+            report.addError("Error checking font using iText: " + e.getMessage());
+            return;
+        }
+        if (!foundValidFont) {
+            String fontsList = String.join(", ", detectedFonts);
+            report.addError("Times New Roman font not detected in the document. Detected fonts: " + fontsList);
         }
     }
 
 
 
 
-    // PUSHKAR
-    private void checkAbstractFormat(PDDocument document, ComplianceReport report) throws IOException {
-        PDFTextStripper textStripper = new PDFTextStripper();
-        textStripper.setStartPage(1);
-        textStripper.setEndPage(Math.min(2, document.getNumberOfPages()));
 
-        String text = textStripper.getText(document);
-        if (text.toUpperCase().contains("ABSTRACT")) {
-            int startIndex = text.indexOf("ABSTRACT") + 8;
-            String remainingText = text.substring(startIndex).trim();
-            int wordCount = remainingText.split("\\s+").length;
 
-            if (wordCount < 100) {
-                report.addError("Abstract must be at least 100 words.");
-            }
-        }
-    }
+
+
 
     private void checkAuthorDetailsFormat(PDDocument document, ComplianceReport report) throws IOException {
         PDFTextStripper textStripper = new PDFTextStripper();
@@ -239,26 +254,38 @@ public class RuleEngine {
         textStripper.setEndPage(1);
 
         String text = textStripper.getText(document);
-        if (!text.contains("Author") && !text.contains("Authors")) {
-            report.addError("Author details are missing.");
+
+        boolean hasSimpleName = Pattern.compile("\\b[A-Z][a-z]+ [A-Z][a-z]+\\b").matcher(text).find();
+        boolean hasAffiliation = text.toLowerCase().contains("department") || text.toLowerCase().contains("university");
+        boolean hasEmail = Pattern.compile("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+").matcher(text).find();
+
+        if (hasSimpleName && hasAffiliation) {
+            report.addInfo("Author details are properly formatted — Compliant");
+        } else {
+            report.addError("Author details may be missing or incorrectly formatted — check name, affiliation, and structure.");
         }
     }
 
-    private void checkAuthorAffiliationFormat(PDDocument document, ComplianceReport report) throws IOException {
+
+    private void checkKeywordsFormat(PDDocument document, ComplianceReport report) throws IOException {
         PDFTextStripper textStripper = new PDFTextStripper();
         textStripper.setStartPage(1);
-        textStripper.setEndPage(1);
+        textStripper.setEndPage(Math.min(2, document.getNumberOfPages()));
 
-        String text = textStripper.getText(document);
-        if (!text.contains("Affiliation")) {
-            report.addError("Author affiliation details are missing.");
+        String text = textStripper.getText(document).toLowerCase();
+        if (text.contains("keywords") || text.contains("index terms")) {
+            report.addInfo("Keywords section is present — Compliant.");
+        } else {
+            report.addError("Keywords section is missing.");
         }
     }
 
 
 
-    // ANIKET
-    private void checkFontFormatting(PDDocument document, ComplianceReport report) {
+
+
+
+    private void IntroNumbering(PDDocument document, ComplianceReport report) {
         AtomicBoolean foundAbstract = new AtomicBoolean(false);
         AtomicBoolean foundIntroduction = new AtomicBoolean(false);
         AtomicBoolean abstractIsValid = new AtomicBoolean(false);
@@ -275,20 +302,15 @@ public class RuleEngine {
 
             textStripper.getText(document);
 
-            if (foundAbstract.get()) {
-                if (!abstractIsValid.get()) {
-                    report.addError("Abstract does not meet IEEE formatting rules");
-                } else {
-                    report.addInfo("Abstract meets IEEE formatting rules.");
-                }
-            }
 
             if (!foundIntroduction.get()) {
                 report.addError("Introduction section not found");
-            } else if (!introductionIsValid.get()) {
-                report.addError("Introduction does not meet IEEE formatting rules");
             } else {
-                report.addInfo("Introduction meets IEEE formatting rules.");
+                if (introductionIsValid.get()) {
+                    report.addInfo("Introduction section numbering is compliant");
+                } else {
+                    report.addError("Introduction section numbering is not compliant");
+                }
             }
 
         } catch (IOException e) {
@@ -301,52 +323,18 @@ public class RuleEngine {
                              AtomicBoolean foundIntroduction, AtomicBoolean introductionIsValid) {
         String normalizedText = text.replaceAll("\\s+", " ").trim().toLowerCase();
 
-        if (!foundAbstract.get() && normalizedText.contains("abstract")) {
-            foundAbstract.set(true);
-            abstractIsValid.set(checkAbstractFormatting(textPositions));
-        }
 
         if (!foundIntroduction.get() && normalizedText.contains("introduction")) {
             foundIntroduction.set(true);
-            introductionIsValid.set(checkIntroductionFormatting(textPositions));
+            introductionIsValid.set(checkIntroductionFormatting(normalizedText));
         }
     }
 
-    private boolean checkAbstractFormatting(List<TextPosition> textPositions) {
-        boolean isBoldItalic = false;
-        boolean isSize9pt = false;
-        boolean isJustified = isTextJustified(textPositions);
 
-        for (TextPosition position : textPositions) {
-            float fontSize = position.getFontSizeInPt();
-
-            if (fontSize == 9.0f) {
-                isSize9pt = true;
-            }
-
-            if (position.getFont().getName().toLowerCase().contains("bold") &&
-                    position.getFont().getName().toLowerCase().contains("italic")) {
-                isBoldItalic = true;
-            }
-        }
-
-        return isSize9pt && isBoldItalic && isJustified;
-    }
-
-    private boolean checkIntroductionFormatting(List<TextPosition> textPositions) {
-        boolean isSize10pt = false;
-        boolean isJustified = isTextJustified(textPositions);
-
-        for (TextPosition position : textPositions) {
-            float fontSize = position.getFontSizeInPt();
-
-            if (fontSize == 10.0f) {
-                isSize10pt = true;
-                break;
-            }
-        }
-
-        return isSize10pt && isJustified;
+    private boolean checkIntroductionFormatting(String text) {
+        Pattern pattern = Pattern.compile("^\\s*((\\d+)|([ivxlcdm]+))[\\.\\)]?\\s+introduction\\b", Pattern.CASE_INSENSITIVE);
+        Matcher matcher = pattern.matcher(text);
+        return matcher.find();
     }
 
     private boolean isTextJustified(List<TextPosition> textPositions) {
@@ -360,7 +348,4 @@ public class RuleEngine {
 
         return avgSpacing < 2.0;
     }
-
-
-
 }
