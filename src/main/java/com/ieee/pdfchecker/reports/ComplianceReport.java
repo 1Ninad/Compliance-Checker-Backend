@@ -9,6 +9,15 @@ public class ComplianceReport {
     private List<String> infoMessages;
     private List<ComplianceItem> items;
 
+    // ✅ Real boolean flags
+    private boolean abstractPresent;
+    private boolean fontCompliant;
+    private boolean columnFormatCompliant;
+    private boolean keywordsPresent;
+    private boolean authorDetailsCompliant;
+    private boolean checkIntroPresenceValid;
+    private boolean pageSizeCompliant; // ✅ ADDED
+
     public ComplianceReport(String fileName) {
         this.fileName = fileName;
         this.errors = new ArrayList<>();
@@ -29,38 +38,18 @@ public class ComplianceReport {
     private String extractRule(String msg) {
         msg = msg.toLowerCase();
         if (msg.contains("abstract")) return "Abstract";
-        if (msg.contains("font")) return "Font";
+        if (msg.contains("font") || msg.contains("typeface")) return "Font";
         if (msg.contains("introduction")) return "Introduction";
         if (msg.contains("author")) return "Author";
         if (msg.contains("column")) return "Column Format";
+        if (msg.contains("keyword")) return "Keywords";
+        if (msg.contains("page size") || msg.contains("incorrect size")) return "Page Size";
+
         return "General";
     }
 
     public boolean isCompliant() {
         return errors.isEmpty();
-    }
-
-    public String getReportSummary() {
-        StringBuilder report = new StringBuilder();
-        report.append("PDF: ").append(fileName).append("\n");
-
-        if (!errors.isEmpty()) {
-            report.append("Errors:\n");
-            for (String error : errors) {
-                report.append("- ").append(error).append("\n");
-            }
-        } else {
-            report.append("No errors found. The document is compliant.\n");
-        }
-
-        if (!infoMessages.isEmpty()) {
-            report.append("\nAdditional Info:\n");
-            for (String info : infoMessages) {
-                report.append("- ").append(info).append("\n");
-            }
-        }
-
-        return report.toString();
     }
 
     public String getFileName() {
@@ -77,5 +66,62 @@ public class ComplianceReport {
 
     public List<ComplianceItem> getItems() {
         return items;
+    }
+
+    public boolean isAbstractPresent() {
+        return abstractPresent;
+    }
+
+    public void setAbstractPresent(boolean abstractPresent) {
+        this.abstractPresent = abstractPresent;
+    }
+
+    public boolean isFontCompliant() {
+        return fontCompliant;
+    }
+
+    public void setFontCompliant(boolean fontCompliant) {
+        this.fontCompliant = fontCompliant;
+    }
+
+    public boolean isColumnFormatCompliant() {
+        return columnFormatCompliant;
+    }
+
+    public void setColumnFormatCompliant(boolean columnFormatCompliant) {
+        this.columnFormatCompliant = columnFormatCompliant;
+    }
+
+    public boolean isKeywordsPresent() {
+        return keywordsPresent;
+    }
+
+    public void setKeywordsPresent(boolean keywordsPresent) {
+        this.keywordsPresent = keywordsPresent;
+    }
+
+    public boolean isAuthorDetailsCompliant() {
+        return authorDetailsCompliant;
+    }
+
+    public void setAuthorDetailsCompliant(boolean authorDetailsCompliant) {
+        this.authorDetailsCompliant = authorDetailsCompliant;
+    }
+
+    public boolean ischeckIntroPresenceValid() {
+        return checkIntroPresenceValid;
+    }
+
+    public void setcheckIntroPresenceValid(boolean checkIntroPresenceValid) {
+        this.checkIntroPresenceValid = checkIntroPresenceValid;
+    }
+
+
+    public boolean isPageSizeCompliant() {
+        return pageSizeCompliant;
+    }
+
+    public void setPageSizeCompliant(boolean pageSizeCompliant) {
+        this.pageSizeCompliant = pageSizeCompliant;
     }
 }

@@ -1,5 +1,4 @@
 package com.ieee.pdfchecker.controller;
-
 import com.ieee.pdfchecker.reports.ComplianceReport;
 import com.ieee.pdfchecker.services.PdfService;
 import org.springframework.http.ResponseEntity;
@@ -9,7 +8,10 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.File;
 import java.io.IOException;
 
-@CrossOrigin(origins = "https://pdfcompliance.vercel.app") // Allow frontend access
+@CrossOrigin(origins = {
+        "https://pdfcompliance.vercel.app",
+        "http://localhost:3000"
+})
 @RestController
 @RequestMapping("/api/pdf")
 public class PdfController {
@@ -27,9 +29,10 @@ public class PdfController {
             file.transferTo(tempFile);
 
             ComplianceReport report = pdfService.processPdf(tempFile);
+            return ResponseEntity.ok(report);
 
-            return ResponseEntity.ok(report); // ✅ Return ComplianceReport as JSON
         } catch (IOException e) {
+            e.printStackTrace();
             return ResponseEntity.badRequest().build();
         }
     }

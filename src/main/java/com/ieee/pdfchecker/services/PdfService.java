@@ -16,7 +16,7 @@ public class PdfService {
     }
 
     public ComplianceReport processPdf(File file) {
-        return ruleEngine.checkCompliance(file); // ✅ Now returns ComplianceReport
+        return ruleEngine.checkCompliance(file);
     }
 
 }

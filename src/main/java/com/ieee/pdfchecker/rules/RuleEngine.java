@@ -14,24 +14,13 @@ import java.io.IOException;
 import java.awt.geom.Rectangle2D;
 
 
-
-
-import org.apache.pdfbox.pdmodel.font.PDFont;
-import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.PDPageTree;
-import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.text.TextPosition;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import com.itextpdf.kernel.pdf.PdfDocument;
-import com.itextpdf.kernel.pdf.PdfReader;
-import com.itextpdf.kernel.pdf.PdfPage;
-import com.itextpdf.kernel.pdf.PdfDictionary;
-import com.itextpdf.kernel.pdf.PdfName;
 
 @Component
 
@@ -54,8 +43,11 @@ public class RuleEngine {
             checkAuthorDetailsFormat(document, report);
             checkKeywordsFormat(document, report);
 
-            IntroNumbering(document, report);
-            // + JDBC
+            checkIntroPresence(document, report);
+
+
+
+
 
 
 
@@ -69,6 +61,8 @@ public class RuleEngine {
 
     private void checkPageSize(PDDocument document, ComplianceReport report) {
         PDPageTree pages = document.getDocumentCatalog().getPages();
+        boolean allCompliant = true;
+
         for (PDPage page : pages) {
 
         }
@@ -86,11 +80,18 @@ public class RuleEngine {
 
             if (!isA4 && !isLetter) {
                 report.addError("Page size is incorrect. Must be A4 (595x842) or US Letter (612x792)");
-            }
-            else {
-                report.addInfo("Page size is Compliant - A4 or US Letter");
+                allCompliant = false;
+                break;
             }
         }
+
+        if (allCompliant) {
+            report.addInfo("Page size is compliant (A4 or US Letter) for all pages");
+        } else {
+            report.addError("One or more pages have incorrect size. Allowed: A4 (595x842) or US Letter (612x792)");
+        }
+
+        report.setPageSizeCompliant(allCompliant);
     }
 
 
@@ -99,7 +100,7 @@ public class RuleEngine {
     private void checkColumnFormat(PDDocument document, ComplianceReport report) throws IOException {
         int numberOfPages = document.getNumberOfPages();
         boolean overallCompliant = true;
-        float minCentroidSeparation = 50.0f;  // Minimum separation to treat as 2 columns
+        float minCentroidSeparation = 50.0f;
 
         for (int page = 1; page <= numberOfPages; page++) {
             List<Float> firstWordPositions = new ArrayList<>();
@@ -158,18 +159,21 @@ public class RuleEngine {
                 centroid2 = newCentroid2;
             }
             if (Math.abs(centroid1 - centroid2) < minCentroidSeparation) {
-                report.addError("Page " + page + ": Column format not compliant, detected 1 column.");
+//                report.addError("Page " + page + ": Column format not compliant, detected 1 column.");
                 overallCompliant = false;
             } else {
-                report.addInfo("Page " + page + ": Column format compliant with 2 columns.");
+//                report.addInfo("Page " + page + ": Column format compliant with 2 columns.");
             }
         }
 
         if (overallCompliant) {
-            report.addInfo("Overall document column format compliant: two columns on every page.");
+            report.addInfo("Overall document column format compliant: 2 columns on every page");
+            report.setColumnFormatCompliant(true);
         } else {
             report.addError("Overall document column format not compliant.");
+            report.setColumnFormatCompliant(false);
         }
+
     }
 
     private float average(List<Float> list) {
@@ -190,14 +194,25 @@ public class RuleEngine {
         String text = textStripper.getText(document);
         if (!text.toUpperCase().contains("ABSTRACT")) {
             report.addError("Abstract section is missing");
+            report.setAbstractPresent(false);
+        } else {
+            report.addInfo("Abstract section is present");
+            report.setAbstractPresent(true);
         }
-        else report.addInfo("Abstract section is present");
     }
 
 
     private void checkFont(PDDocument document, ComplianceReport report) {
         boolean foundValidFont = false;
         Set<String> detectedFonts = new HashSet<>();
+
+        List<String> validFonts = Arrays.asList(
+                "timesnewroman", "times-roman", "timesroman", "times",
+                "nimbusromno9l-regu", "nimbusromno9l-medi", "nimbusromno9l-reguital", "nimbusromno9l-mediital",
+                "cmr", "cmm", "cmmi", "cmsy", "cmex"  // Computer Modern variants
+        );
+
+
         try {
             ByteArrayOutputStream outStream = new ByteArrayOutputStream();
             document.save(outStream);
@@ -219,13 +234,17 @@ public class RuleEngine {
                     String cleanFontName = fontNameStr.contains("+") ? fontNameStr.substring(fontNameStr.indexOf("+") + 1) : fontNameStr;
                     String normalizedFont = cleanFontName.toLowerCase().replaceAll("\\s+", "");
                     detectedFonts.add(cleanFontName);
-                    if (normalizedFont.contains("times") && normalizedFont.contains("roman")) {
-                        foundValidFont = true;
-                        break;
+                    for (String valid : validFonts) {
+                        if (normalizedFont.contains(valid)) {
+                            foundValidFont = true;
+                            break;
+                        }
                     }
+
                 }
                 if (foundValidFont) {
-                    report.addInfo("Typeface (Times New Roman) is Compliant.");
+                    report.addInfo("Typeface (Times New Roman or equivalent) is compliant");
+                    report.setFontCompliant(true);
                     break;
                 }
             }
@@ -237,6 +256,7 @@ public class RuleEngine {
         if (!foundValidFont) {
             String fontsList = String.join(", ", detectedFonts);
             report.addError("Times New Roman font not detected in the document. Detected fonts: " + fontsList);
+            report.setFontCompliant(false);
         }
     }
 
@@ -261,9 +281,12 @@ public class RuleEngine {
 
         if (hasSimpleName && hasAffiliation) {
             report.addInfo("Author details are properly formatted — Compliant");
+            report.setAuthorDetailsCompliant(true);
         } else {
-            report.addError("Author details may be missing or incorrectly formatted — check name, affiliation, and structure.");
+            report.addError("Author details missing or incorrectly formatted — check name, affiliation, and structure.");
+            report.setAuthorDetailsCompliant(false);
         }
+
     }
 
 
@@ -275,9 +298,12 @@ public class RuleEngine {
         String text = textStripper.getText(document).toLowerCase();
         if (text.contains("keywords") || text.contains("index terms")) {
             report.addInfo("Keywords section is present — Compliant.");
+            report.setKeywordsPresent(true);
         } else {
-            report.addError("Keywords section is missing.");
+            report.addError("Keywords section is missing");
+            report.setKeywordsPresent(false);
         }
+
     }
 
 
@@ -285,57 +311,44 @@ public class RuleEngine {
 
 
 
-    private void IntroNumbering(PDDocument document, ComplianceReport report) {
-        AtomicBoolean foundAbstract = new AtomicBoolean(false);
+    private void checkIntroPresence(PDDocument document, ComplianceReport report) {
         AtomicBoolean foundIntroduction = new AtomicBoolean(false);
-        AtomicBoolean abstractIsValid = new AtomicBoolean(false);
-        AtomicBoolean introductionIsValid = new AtomicBoolean(false);
 
         try {
             PDFTextStripper textStripper = new PDFTextStripper() {
                 @Override
                 protected void writeString(String text, List<TextPosition> textPositions) throws IOException {
                     super.writeString(text, textPositions);
-                    processText(text, textPositions, foundAbstract, abstractIsValid, foundIntroduction, introductionIsValid);
+                    processText(text, foundIntroduction);
                 }
             };
 
+            // Only check the first few pages (optional, depending on your needs)
+            textStripper.setStartPage(1);
+            textStripper.setEndPage(Math.min(3, document.getNumberOfPages()));
             textStripper.getText(document);
 
-
-            if (!foundIntroduction.get()) {
-                report.addError("Introduction section not found");
+            if (foundIntroduction.get()) {
+                report.addInfo("Introduction section is present");
             } else {
-                if (introductionIsValid.get()) {
-                    report.addInfo("Introduction section numbering is compliant");
-                } else {
-                    report.addError("Introduction section numbering is not compliant");
-                }
+                report.addError("Introduction section is missing");
             }
-
         } catch (IOException e) {
-            report.addError("Error checking font formatting: " + e.getMessage());
+            report.addError("Error checking Introduction section: " + e.getMessage());
         }
     }
 
-    private void processText(String text, List<TextPosition> textPositions,
-                             AtomicBoolean foundAbstract, AtomicBoolean abstractIsValid,
-                             AtomicBoolean foundIntroduction, AtomicBoolean introductionIsValid) {
+    private void processText(String text, AtomicBoolean foundIntroduction) {
         String normalizedText = text.replaceAll("\\s+", " ").trim().toLowerCase();
 
-
+        // Check if the text contains the word "introduction" (case-insensitive)
         if (!foundIntroduction.get() && normalizedText.contains("introduction")) {
             foundIntroduction.set(true);
-            introductionIsValid.set(checkIntroductionFormatting(normalizedText));
         }
     }
 
 
-    private boolean checkIntroductionFormatting(String text) {
-        Pattern pattern = Pattern.compile("^\\s*((\\d+)|([ivxlcdm]+))[\\.\\)]?\\s+introduction\\b", Pattern.CASE_INSENSITIVE);
-        Matcher matcher = pattern.matcher(text);
-        return matcher.find();
-    }
+
 
     private boolean isTextJustified(List<TextPosition> textPositions) {
         if (textPositions.size() < 2) return false;
